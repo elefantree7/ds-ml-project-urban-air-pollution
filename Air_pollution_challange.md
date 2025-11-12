@@ -1,4 +1,4 @@
-# Air Pollution Challange
+# Air Pollution Challenge
 
 https://zindi.africa/competitions/zindiweekendz-learning-urban-air-pollution-challenge/data
 
@@ -50,5 +50,6 @@ Sentinel 5P data: https://developers.google.com/earth-engine/datasets/catalog/se
 Train.csv - contains the target and supporting data for 349 locations. This is the dataset that you will use to train your model.  
 
 Test.csv- resembles Train.csv but without the target-related columns, and covers 179 different locations.This is the dataset on which you will apply your model to.  
+
 
 SampleSubmission.csv - shows the submission format for this competition, with the ‘Place_ID X Date’ column mirroring that of Test.csv and the ‘target’ column containing your predictions. The order of the rows does not matter, but the names of the Place_ID X Date must be correct.
