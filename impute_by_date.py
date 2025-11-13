@@ -1,3 +1,6 @@
+import pandas as pd
+import numpy as np
+
 def impute_numeric_by_time(
     df: pd.DataFrame,
     date_col: str = "Date",
