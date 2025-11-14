@@ -7,6 +7,7 @@ from copy import deepcopy
 
 def preprocess_for_air_quality(
     df: pd.DataFrame,
+    df_impute: pd.DataFrame,
     date_col: str = "Date",
     place_col: str = "Place_ID",
     target_col: str = "target",
@@ -29,16 +30,18 @@ def preprocess_for_air_quality(
 
 
     df_proc = deepcopy(df)
+    #df_impute_proc = deepcopy(df_impute)
 
     # 0) Filter only the columns you want
     df_proc = filter_cols(df_proc)
+    #df_impute_proc = filter_cols(df_impute_proc)
 
     # Identify numeric columns excluding target and target-related
     target_related_cols = [target_col, 'target_min', 'target_max', 'target_variance', 'target_count']
     numeric_cols = [c for c in df_proc.select_dtypes(include=np.number).columns if c not in target_related_cols]
 
     # 1) Impute missing values using the time-aware function
-    df_proc = impute_numeric_by_time(df_proc, date_col=date_col, place_col=place_col, method=impute_method)
+    df_proc = impute_numeric_by_time(df_impute, date_col=date_col, place_col=place_col, method=impute_method)
 
     # 2) Remove impossible negative vertical column densities
     for col in numeric_cols:
