@@ -6,76 +6,82 @@ from impute_by_date import impute_numeric_by_time
 from copy import deepcopy
 
 def preprocess_for_air_quality(
-    df: pd.DataFrame,
-    #df_impute: pd.DataFrame,
+    df_train: pd.DataFrame,
+    df_test: pd.DataFrame,
     date_col: str = "Date",
     place_col: str = "Place_ID",
     target_col: str = "target",
     impute_method: str = "weekly",
     scale: bool = True
-) -> pd.DataFrame:
+):
     """
-    Preprocess predictor columns for the Air Pollution Challenge.
-    
-    Steps:
-    0) Filter only the columns you want
-    1) Time-aware imputation of missing numeric predictor values
-    2) Remove impossible vertical column values (< -0.001 mol/m²)
-    3) Cap extremely high cloud values (99th percentile)
-    4) Winsorize extreme values (1st-99th percentile)
-    5) Transform highly skewed features
-    6) Optional scaling
-    Target and target-derived columns are untouched.
+    Preprocess train and test without leakage.
+    Returns: df_train_proc, df_test_proc, fitted_objects
     """
 
+    # deep copies for safety
+    train = deepcopy(df_train)
+    test = deepcopy(df_test)
 
-    df_proc = deepcopy(df)
-    #df_impute_proc = deepcopy(df_impute)
+    # filter columns
+    train = filter_cols(train)
+    test = filter_cols(test)
 
-    # 0) Filter only the columns you want
-    df_proc = filter_cols(df_proc)
-    #df_impute_proc = filter_cols(df_impute_proc)
+    # target-related columns (these must be untouched)
+    target_related = [target_col, 'target_min', 'target_max', 'target_variance', 'target_count']
 
-    # Identify numeric columns excluding target and target-related
-    target_related_cols = [target_col, 'target_min', 'target_max', 'target_variance', 'target_count']
-    numeric_cols = [c for c in df_proc.select_dtypes(include=np.number).columns if c not in target_related_cols]
+    # numeric predictor cols
+    numeric_cols = [
+        c for c in train.select_dtypes(include=np.number).columns
+        if c not in target_related
+    ]
 
-    # 1) Impute missing values using the time-aware function
-    df_proc = impute_numeric_by_time(df_proc, date_col=date_col, place_col=place_col, method=impute_method)
+    # ---------- 1. IMPUTATION (fit on train only)
+    train = impute_numeric_by_time(train, date_col, place_col, method=impute_method)
+    test = impute_numeric_by_time(test, date_col, place_col, method=impute_method)
 
-    # 2) Remove impossible negative vertical column densities
+    # ---------- 2. Remove impossible negative values
     for col in numeric_cols:
         if "column" in col or col.endswith("_density"):
-            df_proc = df_proc[df_proc[col] >= -0.001]
+            train = train[train[col] >= -0.001]
+            test = test[test[col] >= -0.001]
 
-    # 3) Cap extremely high cloud values at 99th percentile
+    # ---------- 3. Cap cloud values (fit on train only)
     cloud_cols = [c for c in numeric_cols if "cloud" in c.lower()]
     for col in cloud_cols:
-        upper_limit = df_proc[col].quantile(0.99)
-        df_proc[col] = df_proc[col].clip(lower=None, upper=upper_limit)
+        upper = train[col].quantile(0.99)
+        train[col] = train[col].clip(upper=upper)
+        test[col] = test[col].clip(upper=upper)
 
-    # 4) Winsorize all numeric columns (1st-99th percentile)
-    def cap_outliers(series, lower_quantile=0.01, upper_quantile=0.99):
-        lower = series.quantile(lower_quantile)
-        upper = series.quantile(upper_quantile)
-        return series.clip(lower, upper)
+    # ---------- 4. Winsorize outliers (fit on train only)
+    def cap_outliers(tr_series, te_series):
+        low = tr_series.quantile(0.01)
+        high = tr_series.quantile(0.99)
+        return tr_series.clip(low, high), te_series.clip(low, high)
 
     for col in numeric_cols:
-        df_proc[col] = cap_outliers(df_proc[col])
+        train[col], test[col] = cap_outliers(train[col], test[col])
 
-    # 5) Transform highly skewed features (>2)
-    skewed_features = df_proc[numeric_cols].skew().sort_values(ascending=False)
-    high_skew = skewed_features[abs(skewed_features) > 2].index.tolist()
-    if high_skew:
-        pt = PowerTransformer(method='yeo-johnson')
-        df_proc[high_skew] = pt.fit_transform(df_proc[high_skew])
+    # ---------- 5. Transform skewed features (>2) (fit on train only)
+    skew_vals = train[numeric_cols].skew()
+    skewed = skew_vals[abs(skew_vals) > 2].index.tolist()
 
-    # 6) Optional scaling
+    pt = None
+    if len(skewed) > 0:
+        pt = PowerTransformer(method="yeo-johnson")
+        train[skewed] = pt.fit_transform(train[skewed])
+        test[skewed] = pt.transform(test[skewed])
+
+    # ---------- 6. Scaling (fit on train only)
+    scaler = None
     if scale:
         scaler = StandardScaler()
-        df_proc[numeric_cols] = scaler.fit_transform(df_proc[numeric_cols])
-    
-    # 7) drop last na
-    df_proc = df_proc.dropna()
+        train[numeric_cols] = scaler.fit_transform(train[numeric_cols])
+        test[numeric_cols] = scaler.transform(test[numeric_cols])
 
-    return df_proc
+    # ---------- 7. Drop remaining NAs
+    train = train.dropna()
+    test = test.dropna()
+
+    # return everything
+    return train, test, {"scaler": scaler, "pt": pt}
